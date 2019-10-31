@@ -1,0 +1,21 @@
+CREATE TABLE `redis_string_backup` (
+	`k` CHAR(191) NOT NULL,
+	`v` VARCHAR(4096) NOT NULL,
+	`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`updated_at` TIMESTAMP NULL DEFAULT NULL,
+	PRIMARY KEY (`k`)
+)
+COLLATE='utf8mb4_unicode_ci'
+ENGINE=InnoDB
+;
+
+CREATE TABLE `redis_hash_backup` (
+	`k` CHAR(191) NOT NULL,
+	`v` TEXT NOT NULL,
+	`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`updated_at` TIMESTAMP NULL DEFAULT NULL,
+	PRIMARY KEY (`k`)
+)
+COLLATE='utf8mb4_unicode_ci'
+ENGINE=InnoDB
+;

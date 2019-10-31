@@ -1,0 +1,23 @@
+{
+  "name": "ganlvtech/redis-backup",
+  "description": "Backup Redis hash and string data into a MySQL database",
+  "type": "project",
+  "require": {
+    "php": ">=5.3.3",
+    "ext-mysqli": "*",
+    "ext-redis": "*",
+    "ext-json": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "RedisBackup\\": "src"
+    }
+  },
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Ganlv",
+      "email": "ganlvtech@qq.com"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+<?php
+
+return array(
+    'redis' => array(
+        'host' => '127.0.0.1',
+        'port' => 6379,
+        'password' => '',
+        'node_id' => '',
+    ),
+    'mysql' => array(
+        'host' => '127.0.0.1',
+        'username' => 'root',
+        'password' => '',
+        'database' => 'test',
+        'port' => 3306,
+    ),
+    'backup' => array(
+        // 扫描 Redis 配置
+        'pattern' => '*',
+        'start_pointer' => 0,
+        'scan_pointer_file' => __DIR__ . '/data/scan_pointer.txt',
+        // 是否继续向 scanned_keys_file 中追加扫描到的 key. true: 本次扫描向上一次扫描结果中追加 keys. false: 备份原来的文件，新建一个文件储存本次扫描的 keys
+        'scan_append_keys' => false,
+        'scan_count' => 10000,
+        'scan_batch' => 1000,
+        'scanned_keys_file' => __DIR__ . '/data/scanned_keys.txt',
+
+        // 写入 MySQL
+        'type' => 'hash',
+        'written_keys_file' => __DIR__ . '/data/written_keys.txt',
+        'write_error_keys_file' => __DIR__ . '/data/write_error_keys.txt',
+
+        // Redis key 重命名
+        'rename_suffix' => '-removed',
+        'rename_debug' => true, // 设为 true 则仅打印 RENAME 指令及参数，不执行。
+        'renamed_keys_file' => __DIR__ . '/data/renamed_keys.txt',
+        'rename_error_keys_file' => __DIR__ . '/data/rename_error_keys.txt',
+
+        // Redis key 重命名回滚
+        'reverted_keys_file' => __DIR__ . '/data/reverted_keys.txt',
+        'revert_error_keys_file' => __DIR__ . '/data/revert_error_keys.txt',
+
+        // Redis key 删除
+        'removed_keys_file' => __DIR__ . '/data/removed_keys.txt',
+        'remove_error_keys_file' => __DIR__ . '/data/remove_error_keys.txt',
+    ),
+);
