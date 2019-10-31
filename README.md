@@ -12,7 +12,13 @@
 
 ## 使用方法
 
-## 创建 MySQL 表
+### 创建 autoload
+
+```bash
+composer dump-autoload
+```
+
+### 创建 MySQL 表
 
 ```bash
 mysql -h 127.0.0.1 -P 3306 -uroot -p -D database
@@ -20,7 +26,7 @@ Enter your password:
 mysql> source /path/to/redis-backup/migrations/20191010_162235_create_redis_backup_table.sql
 ```
 
-## 执行
+### 执行
 
 ```bash
 php index.php scan
@@ -40,7 +46,7 @@ php index.php revert
 php index.php remove
 ```
 
-## 配置
+## 配置文件说明
 
 * `$config['backup']['scan_append_keys']` 如果设为 `true` 则不会备份 scanned_keys_file，而是向 scanned_keys_file 中继续追加新扫描到的 keys，您可以通过多次执行 `php index.php scan` 来继续上次扫描
 
