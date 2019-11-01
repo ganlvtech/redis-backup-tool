@@ -27,6 +27,7 @@ return array(
 
         // 写入 MySQL
         'type' => 'hash',
+        'table_name' => 'redis_hash_backup',
         'written_keys_file' => __DIR__ . '/data/written_keys.txt',
         'write_error_keys_file' => __DIR__ . '/data/write_error_keys.txt',
 

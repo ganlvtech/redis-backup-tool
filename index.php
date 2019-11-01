@@ -18,24 +18,48 @@ require __DIR__ . '/vendor/autoload.php';
 // 设置时间地区
 date_default_timezone_set('Asia/Shanghai');
 
+// 读取配置
+$config = include __DIR__ . '/config.php';
+
 // 获取执行命令
-if (isset($argv[1]) && in_array($argv[1], array('scan', 'write', 'compare_rename', 'revert', 'remove'))) {
+if (isset($argv[1]) && in_array($argv[1], array('create_table', 'cluster_info', 'scan', 'write', 'compare_rename', 'revert', 'remove'))) {
     $action = $argv[1];
 } else {
-    echo '扫描 keys         php index.php scan', PHP_EOL;
-    echo '写入数据库        php index.php write', PHP_EOL;
-    echo '比较并重命名 key  php index.php compare_rename', PHP_EOL;
-    echo '回滚重命名        php index.php revert', PHP_EOL;
-    echo '删除 keys         php index.php remove', PHP_EOL;
-    echo '使用帮助          php index.php help', PHP_EOL;
+    echo '配置文件：', PHP_EOL;
+    echo '  Redis:', PHP_EOL;
+    echo '    Host: ', $config['redis']['host'], PHP_EOL;
+    echo '    Port: ', $config['redis']['port'], PHP_EOL;
+    echo '    Node ID: ', $config['redis']['node_id'], PHP_EOL;
+    echo '  MySQL:', PHP_EOL;
+    echo '    Host: ', $config['mysql']['host'], PHP_EOL;
+    echo '    Port: ', $config['mysql']['port'], PHP_EOL;
+    echo '    Username: ', $config['mysql']['username'], PHP_EOL;
+    echo '    Database: ', $config['mysql']['database'], PHP_EOL;
+    echo '  备份:', PHP_EOL;
+    echo '    扫描匹配模式: ', $config['backup']['pattern'], PHP_EOL;
+    echo '    SCAN 初始指针: ', $config['backup']['start_pointer'], PHP_EOL;
+    echo '    连续扫描: ', $config['backup']['scan_append_keys'] ? '继续向上一次扫描的 scan_pointer_file 中写入扫描到的 keys' : '每次扫描备份 scan_pointer_file 然后向一个新的 scan_pointer_file 中写入扫描到的 keys', PHP_EOL;
+    echo '    扫描 keys 数量: 一共扫描 ', $config['backup']['scan_count'], ' 个，每次获取 ', $config['backup']['scan_batch'], ' 个', PHP_EOL;
+    echo '    扫描 key 类型: ', $config['backup']['type'], PHP_EOL;
+    echo '    表名: ', $config['backup']['table_name'], PHP_EOL;
+    echo '    重命名后缀: ', $config['backup']['rename_suffix'], PHP_EOL;
+    echo '    重命名 Debug: ', $config['backup']['rename_debug'] ? '仅打印 RENAME 指令及参数，不执行 RENAME' : '否', PHP_EOL;
+    echo PHP_EOL;
+    echo '命令：', PHP_EOL;
+    echo '  编辑配置文件      vim config.php', PHP_EOL;
+    echo '  创建表            php index.php create_table', PHP_EOL;
+    echo '  Redis 集群信息    php index.php cluster_info', PHP_EOL;
+    echo '  扫描 keys         php index.php scan', PHP_EOL;
+    echo '  写入数据库        php index.php write', PHP_EOL;
+    echo '  比较并重命名 key  php index.php compare_rename', PHP_EOL;
+    echo '  回滚重命名        php index.php revert', PHP_EOL;
+    echo '  删除 keys         php index.php remove', PHP_EOL;
+    echo '  使用帮助          php index.php help', PHP_EOL;
     exit;
 }
 
 // 初始化 Logger
 Logger::init(__DIR__ . '/log');
-
-// 读取配置
-$config = include __DIR__ . '/config.php';
 
 // 连接 Redis
 $redis = new Redis();
@@ -48,8 +72,61 @@ if ($config['redis']['password']) {
 $mysqli = new mysqli($config['mysql']['host'], $config['mysql']['username'], $config['mysql']['password'], $config['mysql']['database'], $config['mysql']['port']);
 $mysqli->set_charset('utf8');
 
+if ($action === 'create_table') {
+    Logger::info("创建 MySQL 表. 类型: {$config['backup']['type']}. 表名: {$config['backup']['table_name']}");
+    switch ($config['backup']['type']) {
+        case 'string':
+            $sql = "CREATE TABLE `{$config['backup']['table_name']}` (
+	`k` CHAR(191) NOT NULL,
+	`v` VARCHAR(4096) NOT NULL,
+	`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`updated_at` TIMESTAMP NULL DEFAULT NULL,
+	PRIMARY KEY (`k`)
+)
+COLLATE='utf8mb4_unicode_ci'
+ENGINE=InnoDB
+;";
+            $mysql_result = $mysqli->query($sql);
+            if (!$mysql_result) {
+                Logger::error("创建 MySQL 表失败: {$mysqli->error}\n{$sql}");
+            } else {
+                Logger::info("创建 MySQL 表成功: {$config['backup']['table_name']}");
+            }
+            break;
+        case 'hash':
+            $sql = "CREATE TABLE `{$config['backup']['table_name']}` (
+	`k` CHAR(191) NOT NULL,
+	`v` TEXT NOT NULL,
+	`created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	`updated_at` TIMESTAMP NULL DEFAULT NULL,
+	PRIMARY KEY (`k`)
+)
+COLLATE='utf8mb4_unicode_ci'
+ENGINE=InnoDB
+;
+";
+            $mysql_result = $mysqli->query($sql);
+            if (!$mysql_result) {
+                Logger::error("创建 MySQL 表失败: {$mysqli->error}\n{$sql}");
+            } else {
+                Logger::info("创建 MySQL 表成功: {$config['backup']['table_name']}");
+            }
+            break;
+        default:
+            Logger::error("不支持类型: {$config['backup']['type']}");
+    }
+    return;
+}
+
 // 创建实例
 $redisBackup = new RedisBackup($redis, $mysqli, $config['redis']['node_id']);
+
+// Redis 集群信息
+if ($action === 'cluster_info') {
+    echo $redisBackup->getClusterNodesInfo(), PHP_EOL;
+    return;
+}
+
 try {
     $redisBackup->init();
 } catch (RedisBackupException $e) {
@@ -100,7 +177,8 @@ switch ($action) {
         $writer = $redisBackup->writer(
             $config['backup']['type'],
             new KeyFileReader($config['backup']['scanned_keys_file']),
-            new KeyFileWriter($config['backup']['written_keys_file'])
+            new KeyFileWriter($config['backup']['written_keys_file']),
+            $config['backup']['table_name']
         );
         $writeErrorKeysWriter = new KeyFileWriter($config['backup']['write_error_keys_file']);
 
@@ -129,7 +207,8 @@ switch ($action) {
             $config['backup']['type'],
             new KeyFileReader($config['backup']['written_keys_file']),
             new KeyFileWriter($config['backup']['renamed_keys_file']),
-            $config['backup']['rename_suffix']
+            $config['backup']['rename_suffix'],
+            $config['backup']['table_name']
         );
         $renamer->isDebug = $config['backup']['rename_debug'];
         $renameErrorKeysWriter = new KeyFileWriter($config['backup']['rename_error_keys_file']);

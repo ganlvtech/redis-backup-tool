@@ -2,6 +2,7 @@
 
 namespace RedisBackup\RedisMysqlWriter;
 
+use RedisBackup\Exception\RedisBackupException;
 use RedisBackup\Exception\RedisBackupJsonEncodeFailedException;
 use RedisBackup\Exception\RedisBackupMySQLFailedException;
 use RedisBackup\Exception\RedisBackupRedisFailedException;
@@ -18,6 +19,15 @@ class RedisHashMysqlWriter extends RedisMysqlWriter
         if ($this->currentKey === false) {
             $this->isFinished = true;
             return false;
+        }
+
+        $redis_result = $this->redis->type($this->currentKey);
+        if ($redis_result === false) {
+            throw new RedisBackupRedisFailedException('TYPE', $this->redis);
+        } elseif ($redis_result === \Redis::REDIS_NOT_FOUND) {
+            throw new RedisBackupException('Redis Key 不存在: ' . $this->currentKey);
+        } elseif ($redis_result !== \Redis::REDIS_HASH) {
+            throw new RedisBackupException('Redis Key 类型不为 hash: ' . $this->currentKey);
         }
 
         $redis_result = $this->redis->hGetAll($this->currentKey);
@@ -37,7 +47,7 @@ class RedisHashMysqlWriter extends RedisMysqlWriter
     {
         Logger::info("开始读取 Redis 并写入 MySQL");
 
-        $sql = "INSERT INTO redis_hash_backup (k, v, created_at) VALUES (?, ?, CURRENT_TIMESTAMP()) ON DUPLICATE KEY UPDATE v = ?, updated_at = CURRENT_TIMESTAMP()";
+        $sql = "INSERT INTO {$this->tableName} (k, v, created_at) VALUES (?, ?, CURRENT_TIMESTAMP()) ON DUPLICATE KEY UPDATE v = ?, updated_at = CURRENT_TIMESTAMP()";
         $stmt = $this->mysqli->prepare($sql);
         if (!$stmt) {
             throw new RedisBackupMySQLFailedException('MySQL Prepare 失败. SQL: ' . $sql, $this->mysqli);

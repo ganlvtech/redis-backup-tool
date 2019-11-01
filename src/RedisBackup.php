@@ -107,17 +107,18 @@ class RedisBackup
      * @param string $type
      * @param \RedisBackup\KeyFileReader $scannedKeysFileReader
      * @param \RedisBackup\KeyFileWriter $writtenKeysFileWriter
+     * @param string $tableName
      *
      * @return \RedisBackup\RedisMysqlWriter
      * @throws \RedisBackup\Exception\RedisBackupException
      */
-    public function writer($type, $scannedKeysFileReader, $writtenKeysFileWriter)
+    public function writer($type, $scannedKeysFileReader, $writtenKeysFileWriter, $tableName)
     {
         switch ($type) {
             case 'string':
-                return new RedisStringMysqlWriter($this->redis, $this->mysqli, $scannedKeysFileReader, $writtenKeysFileWriter);
+                return new RedisStringMysqlWriter($this->redis, $this->mysqli, $scannedKeysFileReader, $writtenKeysFileWriter, $tableName);
             case 'hash':
-                return new RedisHashMysqlWriter($this->redis, $this->mysqli, $scannedKeysFileReader, $writtenKeysFileWriter);
+                return new RedisHashMysqlWriter($this->redis, $this->mysqli, $scannedKeysFileReader, $writtenKeysFileWriter, $tableName);
             default:
                 throw new RedisBackupException("不支持 $type 类型");
         }
@@ -132,17 +133,18 @@ class RedisBackup
      * @param \RedisBackup\KeyFileReader $writtenKeysFileReader
      * @param \RedisBackup\KeyFileWriter $renamedKeysFileWriter
      * @param string $renameSuffix
+     * @param string $tableName
      *
      * @return \RedisBackup\RedisMysqlCompareRenamer
      * @throws \RedisBackup\Exception\RedisBackupException
      */
-    public function renamer($type, $writtenKeysFileReader, $renamedKeysFileWriter, $renameSuffix)
+    public function renamer($type, $writtenKeysFileReader, $renamedKeysFileWriter, $renameSuffix, $tableName)
     {
         switch ($type) {
             case 'string':
-                return new RedisStringMysqlCompareRenamer($this->redis, $this->mysqli, $writtenKeysFileReader, $renamedKeysFileWriter, $renameSuffix);
+                return new RedisStringMysqlCompareRenamer($this->redis, $this->mysqli, $writtenKeysFileReader, $renamedKeysFileWriter, $renameSuffix, $tableName);
             case 'hash':
-                return new RedisHashMysqlCompareRenamer($this->redis, $this->mysqli, $writtenKeysFileReader, $renamedKeysFileWriter, $renameSuffix);
+                return new RedisHashMysqlCompareRenamer($this->redis, $this->mysqli, $writtenKeysFileReader, $renamedKeysFileWriter, $renameSuffix, $tableName);
             default:
                 throw new RedisBackupException("不支持 $type 类型");
         }

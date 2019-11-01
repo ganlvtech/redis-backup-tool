@@ -11,6 +11,7 @@ abstract class RedisMysqlCompareRenamer
     public $keyFileReader;
     public $keyFileWriter;
     public $renameSuffix;
+    public $tableName;
     public $currentKey;
     public $keyCount;
     public $isFinished;
@@ -24,14 +25,16 @@ abstract class RedisMysqlCompareRenamer
      * @param \RedisBackup\KeyFileReader $keyFileReader
      * @param \RedisBackup\KeyFileWriter $keyFileWriter
      * @param string $renameSuffix
+     * @param string $tableName
      */
-    public function __construct($redis, $mysqli, $keyFileReader, $keyFileWriter, $renameSuffix)
+    public function __construct($redis, $mysqli, $keyFileReader, $keyFileWriter, $renameSuffix, $tableName)
     {
         $this->redis = $redis;
         $this->mysqli = $mysqli;
         $this->keyFileReader = $keyFileReader;
         $this->keyFileWriter = $keyFileWriter;
         $this->renameSuffix = $renameSuffix;
+        $this->tableName = $tableName;
         $this->currentKey = '';
         $this->keyCount = 0;
         $this->isFinished = false;

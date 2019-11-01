@@ -33,7 +33,7 @@ class RedisStringMysqlCompareRenamer extends RedisMysqlCompareRenamer
     {
         Logger::info("开始读取 Redis 和 MySQL 并进行比较，成功后修改 Redis key 的名称");
 
-        $sql = "SELECT v FROM redis_string_backup WHERE k = ?";
+        $sql = "SELECT v FROM {$this->tableName} WHERE k = ?";
         $stmt = $this->mysqli->prepare($sql);
         if (!$stmt) {
             throw new RedisBackupMySQLFailedException('MySQL Prepare 失败. SQL: ' . $sql, $this->mysqli);
