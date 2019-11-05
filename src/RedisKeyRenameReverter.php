@@ -44,7 +44,15 @@ class RedisKeyRenameReverter
         if (substr($renamedKey, -strlen($this->renameSuffix)) !== $this->renameSuffix) {
             return false;
         }
-        return substr($renamedKey, 0, -strlen($this->renameSuffix));
+        $renamedKey = substr($renamedKey, 0, -strlen($this->renameSuffix));
+        if (substr($renamedKey, 0, 1) !== '{') {
+            return false;
+        }
+        if (substr($renamedKey, -1) !== '}') {
+            return false;
+        }
+        $renamedKey = substr($renamedKey, 1, -1);
+        return $renamedKey;
     }
 
     protected function revertRename($renamedKey)
@@ -53,6 +61,12 @@ class RedisKeyRenameReverter
         if ($key === false) {
             return false;
         }
+
+        $redis_result = $this->redis->exists($key);
+        if ($redis_result) {
+            throw new RedisBackupException('回滚后的 Key 名称已存在: ' . $key);
+        }
+
         if ($this->isDebug) {
             echo "Redis> RENAME $renamedKey $key", PHP_EOL;
         } else {

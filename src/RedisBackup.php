@@ -4,6 +4,7 @@ namespace RedisBackup;
 
 use RedisBackup\Exception\RedisBackupClusterNotSelectNodeException;
 use RedisBackup\Exception\RedisBackupException;
+use RedisBackup\Exception\RedisBackupRedisFailedException;
 use RedisBackup\RedisMysqlCompareRenamer\RedisHashMysqlCompareRenamer;
 use RedisBackup\RedisMysqlCompareRenamer\RedisStringMysqlCompareRenamer;
 use RedisBackup\RedisMysqlWriter\RedisHashMysqlWriter;
@@ -45,14 +46,12 @@ class RedisBackup
     /**
      * @throws \RedisBackup\Exception\RedisBackupClusterNotSelectNodeException
      */
-    public function init()
-    {
-        $this->checkRedisCluster();
-    }
-
-    protected function checkRedisCluster()
+    public function checkRedisCluster()
     {
         $info = $this->redis->info('server');
+        if ($info === false) {
+            throw new RedisBackupRedisFailedException('INFO server', $this->redis);
+        }
         if (isset($info['redis_mode']) && $info['redis_mode'] === 'cluster') {
             $this->redisIsCluster = true;
             if (empty($this->redisNodeId)) {

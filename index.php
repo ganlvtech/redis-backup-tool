@@ -1,5 +1,6 @@
 <?php
 
+use RedisBackup\Exception\RedisBackupClusterNotSelectNodeException;
 use RedisBackup\Exception\RedisBackupException;
 use RedisBackup\KeyFileReader;
 use RedisBackup\KeyFileWriter;
@@ -44,6 +45,17 @@ if (isset($argv[1]) && in_array($argv[1], array('create_table', 'cluster_info', 
     echo '    表名: ', $config['backup']['table_name'], PHP_EOL;
     echo '    重命名后缀: ', $config['backup']['rename_suffix'], PHP_EOL;
     echo '    重命名 Debug: ', $config['backup']['rename_debug'] ? '仅打印 RENAME 指令及参数，不执行 RENAME' : '否', PHP_EOL;
+    echo '  记录文件:', PHP_EOL;
+    echo '    扫描指针: ', $config['backup']['scan_pointer_file'] , PHP_EOL;
+    echo '    扫描到的 keys: ', $config['backup']['scanned_keys_file'] , PHP_EOL;
+    echo '    已写入的 keys: ', $config['backup']['written_keys_file'] , PHP_EOL;
+    echo '    写入错误的 keys: ', $config['backup']['write_error_keys_file'] , PHP_EOL;
+    echo '    已重命名的 keys: ', $config['backup']['renamed_keys_file'] , PHP_EOL;
+    echo '    重命名出错的 keys: ', $config['backup']['rename_error_keys_file'] , PHP_EOL;
+    echo '    已回滚的 keys: ', $config['backup']['reverted_keys_file'] , PHP_EOL;
+    echo '    回滚错误的 keys: ', $config['backup']['revert_error_keys_file'] , PHP_EOL;
+    echo '    已删除的 keys: ', $config['backup']['removed_keys_file'] , PHP_EOL;
+    echo '    删除失败的 keys: ', $config['backup']['remove_error_keys_file'] , PHP_EOL;
     echo PHP_EOL;
     echo '命令：', PHP_EOL;
     echo '  编辑配置文件      vim config.php', PHP_EOL;
@@ -72,6 +84,7 @@ if ($config['redis']['password']) {
 $mysqli = new mysqli($config['mysql']['host'], $config['mysql']['username'], $config['mysql']['password'], $config['mysql']['database'], $config['mysql']['port']);
 $mysqli->set_charset('utf8');
 
+// 创建表指令
 if ($action === 'create_table') {
     Logger::info("创建 MySQL 表. 类型: {$config['backup']['type']}. 表名: {$config['backup']['table_name']}");
     switch ($config['backup']['type']) {
@@ -127,18 +140,19 @@ if ($action === 'cluster_info') {
     return;
 }
 
-try {
-    $redisBackup->init();
-} catch (RedisBackupException $e) {
-    Logger::error($e->getMessage());
-    echo $e->getMessage(), PHP_EOL;
-    echo $e->getTraceAsString(), PHP_EOL;
-    return;
-}
-
 // 不同操作
 switch ($action) {
     case 'scan':
+        // 检查是否是集群
+        try {
+            $redisBackup->checkRedisCluster();
+        } catch (RedisBackupClusterNotSelectNodeException $e) {
+            Logger::error($e->getMessage());
+            echo $e->getMessage(), PHP_EOL;
+            echo $e->getTraceAsString(), PHP_EOL;
+            return;
+        }
+
         $scanner = $redisBackup->scanner(
             $config['backup']['pattern'],
             $config['backup']['type'],

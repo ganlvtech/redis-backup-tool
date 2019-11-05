@@ -47,7 +47,7 @@ abstract class RedisMysqlCompareRenamer
 
     protected function buildRenamedKey($key)
     {
-        return $key . $this->renameSuffix;
+        return '{' . $key . '}' . $this->renameSuffix;
     }
 
     protected function rename($key)
