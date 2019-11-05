@@ -4,78 +4,36 @@ namespace RedisBackup\RedisMysqlWriter;
 
 use RedisBackup\Exception\RedisBackupException;
 use RedisBackup\Exception\RedisBackupJsonEncodeFailedException;
-use RedisBackup\Exception\RedisBackupMySQLFailedException;
 use RedisBackup\Exception\RedisBackupRedisFailedException;
 use RedisBackup\RedisMysqlWriter;
-use RedisBackup\Util\Logger;
-use RedisBackup\Util\Sampler;
-use RedisBackup\Util\Timer;
 
 class RedisHashMysqlWriter extends RedisMysqlWriter
 {
-    public function getOneKeyValue()
+    public function fetchOneKeyValueUsingPipe($queued_key)
     {
-        $this->currentKey = $this->keyFileReader->getKey();
-        if ($this->currentKey === false) {
-            $this->isFinished = true;
-            return false;
-        }
+        $this->redis->type($queued_key);
+        $this->redis->hGetAll($queued_key);
+    }
 
-        $redis_result = $this->redis->type($this->currentKey);
+    public function processOneKeyValueFromPipe($queued_key, $redis_result_array)
+    {
+        $redis_result = $redis_result_array[0];
         if ($redis_result === false) {
             throw new RedisBackupRedisFailedException('TYPE', $this->redis);
         } elseif ($redis_result === \Redis::REDIS_NOT_FOUND) {
-            throw new RedisBackupException('Redis Key 不存在: ' . $this->currentKey);
+            throw new RedisBackupException('Redis Key 不存在: ' . $queued_key);
         } elseif ($redis_result !== \Redis::REDIS_HASH) {
-            throw new RedisBackupException('Redis Key 类型不为 hash: ' . $this->currentKey);
+            throw new RedisBackupException('Redis Key 类型不为 hash: ' . $queued_key);
         }
 
-        $redis_result = $this->redis->hGetAll($this->currentKey);
-        if ($redis_result === false) {
+        $this->currentValue = $redis_result_array[1];
+        if ($this->currentValue === false) {
             throw new RedisBackupRedisFailedException('HGETALL', $this->redis);
         }
 
-        $value = json_encode($redis_result);
-        if ($value === false) {
-            throw new RedisBackupJsonEncodeFailedException($value);
+        $this->currentValue = json_encode($this->currentValue);
+        if ($this->currentValue === false) {
+            throw new RedisBackupJsonEncodeFailedException($this->currentValue);
         }
-
-        return $value;
-    }
-
-    public function run()
-    {
-        Logger::info("开始读取 Redis 并写入 MySQL");
-
-        $sql = "INSERT INTO {$this->tableName} (k, v, created_at) VALUES (?, ?, CURRENT_TIMESTAMP()) ON DUPLICATE KEY UPDATE v = ?, updated_at = CURRENT_TIMESTAMP()";
-        $stmt = $this->mysqli->prepare($sql);
-        if (!$stmt) {
-            throw new RedisBackupMySQLFailedException('MySQL Prepare 失败. SQL: ' . $sql, $this->mysqli);
-        }
-        $stmt->bind_param('sss', $key, $value, $value);
-
-        Timer::start();
-        while (!$this->isFinished()) {
-            // 读 Redis
-            $value = $this->getOneKeyValue();
-            if ($value == false) {
-                break;
-            }
-            $key = $this->currentKey;
-
-            // 写 MySQL
-            if (!$stmt->execute()) {
-                throw new RedisBackupMySQLFailedException('MySQL redis_hash_backup 插入失败', $this->mysqli);
-            }
-            $this->keyFileWriter->write($key);
-
-            ++$this->keyCount;
-            if (Sampler::sample(300)) {
-                $t = Timer::time();
-                Logger::info("已写入 hash 数量: {$this->keyCount}\t耗时: {$t} s");
-            }
-        }
-        $t = Timer::time();
-        Logger::info("写入完成！hash 数量: {$this->keyCount}\t耗时: {$t} s");
     }
 }

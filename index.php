@@ -46,16 +46,16 @@ if (isset($argv[1]) && in_array($argv[1], array('create_table', 'cluster_info', 
     echo '    重命名后缀: ', $config['backup']['rename_suffix'], PHP_EOL;
     echo '    重命名 Debug: ', $config['backup']['rename_debug'] ? '仅打印 RENAME 指令及参数，不执行 RENAME' : '否', PHP_EOL;
     echo '  记录文件:', PHP_EOL;
-    echo '    扫描指针: ', $config['backup']['scan_pointer_file'] , PHP_EOL;
-    echo '    扫描到的 keys: ', $config['backup']['scanned_keys_file'] , PHP_EOL;
-    echo '    已写入的 keys: ', $config['backup']['written_keys_file'] , PHP_EOL;
-    echo '    写入错误的 keys: ', $config['backup']['write_error_keys_file'] , PHP_EOL;
-    echo '    已重命名的 keys: ', $config['backup']['renamed_keys_file'] , PHP_EOL;
-    echo '    重命名出错的 keys: ', $config['backup']['rename_error_keys_file'] , PHP_EOL;
-    echo '    已回滚的 keys: ', $config['backup']['reverted_keys_file'] , PHP_EOL;
-    echo '    回滚错误的 keys: ', $config['backup']['revert_error_keys_file'] , PHP_EOL;
-    echo '    已删除的 keys: ', $config['backup']['removed_keys_file'] , PHP_EOL;
-    echo '    删除失败的 keys: ', $config['backup']['remove_error_keys_file'] , PHP_EOL;
+    echo '    扫描指针: ', $config['backup']['scan_pointer_file'], PHP_EOL;
+    echo '    扫描到的 keys: ', $config['backup']['scanned_keys_file'], PHP_EOL;
+    echo '    已写入的 keys: ', $config['backup']['written_keys_file'], PHP_EOL;
+    echo '    写入错误的 keys: ', $config['backup']['write_error_keys_file'], PHP_EOL;
+    echo '    已重命名的 keys: ', $config['backup']['renamed_keys_file'], PHP_EOL;
+    echo '    重命名出错的 keys: ', $config['backup']['rename_error_keys_file'], PHP_EOL;
+    echo '    已回滚的 keys: ', $config['backup']['reverted_keys_file'], PHP_EOL;
+    echo '    回滚错误的 keys: ', $config['backup']['revert_error_keys_file'], PHP_EOL;
+    echo '    已删除的 keys: ', $config['backup']['removed_keys_file'], PHP_EOL;
+    echo '    删除失败的 keys: ', $config['backup']['remove_error_keys_file'], PHP_EOL;
     echo PHP_EOL;
     echo '命令：', PHP_EOL;
     echo '  编辑配置文件      vim config.php', PHP_EOL;
@@ -199,10 +199,12 @@ switch ($action) {
         $ignoreAll = false;
         while (!$writer->isFinished()) {
             try {
-                $writer->run();
+                $writer->run($config['backup']['write_batch']);
             } catch (RedisBackupException $e) {
-                Logger::error($e->getMessage() . " Key: {$writer->currentKey}");
-                $writeErrorKeysWriter->write($writer->currentKey);
+                $keys = implode("\n", array_keys($writer->queuedKeyValues));
+                Logger::error($e->getMessage() . " 当前行: {$writer->keyFileReader->getLineNumber()} Keys: {$keys}");
+                $writeErrorKeysWriter->writeMultiple($writer->queuedKeyValues);
+                $writer->clearQueuedKeyValues();
                 echo $e->getMessage(), PHP_EOL;
                 echo $e->getTraceAsString(), PHP_EOL;
                 if (!$ignoreAll) {
@@ -285,10 +287,12 @@ switch ($action) {
         $ignoreAll = false;
         while (!$remover->isFinished()) {
             try {
-                $remover->run();
+                $remover->run($config['backup']['remove_batch']);
             } catch (RedisBackupException $e) {
-                Logger::error($e->getMessage() . " Key: {$remover->currentKey}");
-                $writeErrorKeysWriter->write($remover->currentKey);
+                $keys = implode("\n", $remover->queuedKeys);
+                Logger::error($e->getMessage() . " 当前行: {$remover->keyFileReader->getLineNumber()} Keys: {$keys}");
+                $removeErrorKeysWriter->writeMultiple($remover->queuedKeys);
+                $remover->clearQueuedKeys();
                 echo $e->getMessage(), PHP_EOL;
                 echo $e->getTraceAsString(), PHP_EOL;
                 if (!$ignoreAll) {

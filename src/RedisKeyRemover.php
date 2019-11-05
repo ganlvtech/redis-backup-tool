@@ -2,6 +2,7 @@
 
 namespace RedisBackup;
 
+use RedisBackup\Exception\RedisBackupDeleteCountNotEqualsException;
 use RedisBackup\Exception\RedisBackupRedisFailedException;
 use RedisBackup\Util\Logger;
 use RedisBackup\Util\Sampler;
@@ -18,7 +19,8 @@ class RedisKeyRemover
 
     public $currentKey;
     public $keyCount;
-    public $isFinished;
+
+    public $queuedKeys;
 
     public function __construct($redis, $keyFileReader, $keyFileWriter)
     {
@@ -26,37 +28,63 @@ class RedisKeyRemover
         $this->keyFileReader = $keyFileReader;
         $this->keyFileWriter = $keyFileWriter;
         $this->keyCount = 0;
-        $this->isFinished = false;
+        $this->queuedKeys = array();
     }
 
     public function isFinished()
     {
-        return $this->isFinished;
+        return $this->keyFileReader->isFinished();
     }
 
-    public function run()
+    public function queueKey($key)
+    {
+        $this->queuedKeys[] = $key;
+    }
+
+    public function delQueuedKeys()
+    {
+        $redis_result = call_user_func_array(array($this->redis, 'del'), $this->queuedKeys);
+        return $redis_result;
+    }
+
+    public function clearQueuedKeys()
+    {
+        $this->queuedKeys = array();
+    }
+
+    public function runBatch()
+    {
+        $redis_result = $this->delQueuedKeys();
+        if ($redis_result === false) {
+            throw new RedisBackupRedisFailedException('DEL', $this->redis);
+        }
+        $del_count = (int)$redis_result;
+        if ($del_count != count($this->queuedKeys)) {
+            throw new RedisBackupDeleteCountNotEqualsException(count($this->queuedKeys), $del_count, $this->redis);
+        }
+        $this->keyCount += $del_count;
+        $this->keyFileWriter->writeMultiple($this->queuedKeys);
+        $this->clearQueuedKeys();
+
+        $t = Timer::time();
+        Logger::info("已删除 key 数量: {$this->keyCount}\t耗时: {$t} s");
+    }
+
+    public function run($batch = 300)
     {
         Logger::info("开始删除 Redis key");
         Timer::start();
         while (!$this->isFinished()) {
             $this->currentKey = $this->keyFileReader->getKey();
             if ($this->currentKey === false) {
-                $this->isFinished = true;
                 break;
             }
-
-            $redis_result = $this->redis->del($this->currentKey);
-            if ($redis_result === false) {
-                throw new RedisBackupRedisFailedException('DEL', $this->redis);
-            }
-
-            ++$this->keyCount;
-            if (Sampler::sample(300)) {
-                $t = Timer::time();
-                Logger::info("已删除 key 数量: {$this->keyCount}\t耗时: {$t} s");
+            $this->queueKey($this->currentKey);
+            if (Sampler::sample($batch)) {
+                $this->runBatch();
             }
         }
-        $t = Timer::time();
-        Logger::info("删除完成！key 数量: {$this->keyCount}\t耗时: {$t} s");
+        $this->runBatch();
+        Logger::info('删除完成！');
     }
 }

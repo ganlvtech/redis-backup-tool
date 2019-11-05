@@ -12,7 +12,7 @@ if ($config['redis']['password']) {
     $redis->auth($config['redis']['password']);
 }
 
-$key_count = mt_rand(100, 200);
+$key_count = mt_rand(1000, 2000);
 for ($i = 0; $i < $key_count; $i++) {
     $key = 'redis-backup-hash-test:' . generateRandomString(mt_rand(5, 30));
     $field_count = mt_rand(1, 10);
