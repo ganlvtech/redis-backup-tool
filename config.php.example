@@ -29,21 +29,28 @@ return array(
         'type' => 'hash',
         'table_name' => 'redis_hash_backup',
         'write_batch' => 300,
+        'write_batch' => 300,
+        'write_read_keys_file' => __DIR__ . '/data/scanned_keys.txt',
         'written_keys_file' => __DIR__ . '/data/written_keys.txt',
         'write_error_keys_file' => __DIR__ . '/data/write_error_keys.txt',
 
         // Redis key 重命名
         'rename_suffix' => '-removed',
         'rename_debug' => true, // 设为 true 则仅打印 RENAME 指令及参数，不执行。
+        'rename_batch' => 300,
+        'rename_read_keys_file' => __DIR__ . '/data/written_keys.txt',
         'renamed_keys_file' => __DIR__ . '/data/renamed_keys.txt',
         'rename_error_keys_file' => __DIR__ . '/data/rename_error_keys.txt',
 
         // Redis key 重命名回滚
+        'revert_batch' => 300,
+        'revert_read_keys_file' => __DIR__ . '/data/renamed_keys.txt',
         'reverted_keys_file' => __DIR__ . '/data/reverted_keys.txt',
         'revert_error_keys_file' => __DIR__ . '/data/revert_error_keys.txt',
 
         // Redis key 删除
         'remove_batch' => 300,
+        'remove_read_keys_file' => __DIR__ . '/data/renamed_keys.txt',
         'removed_keys_file' => __DIR__ . '/data/removed_keys.txt',
         'remove_error_keys_file' => __DIR__ . '/data/remove_error_keys.txt',
     ),

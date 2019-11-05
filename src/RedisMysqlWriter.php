@@ -2,6 +2,7 @@
 
 namespace RedisBackup;
 
+use RedisBackup\Exception\RedisBackupCountNotEqualsException;
 use RedisBackup\Exception\RedisBackupMySQLFailedException;
 use RedisBackup\Exception\RedisBackupRedisFailedException;
 use RedisBackup\Exception\RedisBackupWriteCountNotEnoughException;
@@ -16,12 +17,12 @@ abstract class RedisMysqlWriter
     public $keyFileReader;
     public $keyFileWriter;
     public $tableName;
-    public $currentKey;
-    public $currentValue;
-    public $keyCount;
 
     public $queuedKeys;
-    public $queuedKeyValues;
+    public $queuedValues;
+
+    public $currentKey;
+    public $keyCount;
 
     /**
      * @param \Redis $redis
@@ -37,10 +38,12 @@ abstract class RedisMysqlWriter
         $this->keyFileReader = $keyFileReader;
         $this->keyFileWriter = $keyFileWriter;
         $this->tableName = $tableName;
+
+        $this->queuedKeys = array();
+        $this->queuedValues = array();
+
         $this->currentKey = '';
         $this->keyCount = 0;
-        $this->queuedKeys = array();
-        $this->queuedKeyValues = array();
     }
 
     public function isFinished()
@@ -48,34 +51,9 @@ abstract class RedisMysqlWriter
         return $this->keyFileReader->isFinished();
     }
 
-    abstract public function fetchOneKeyValueUsingPipe($queued_key);
-
-    abstract public function processOneKeyValueFromPipe($queued_key, $redis_result_array);
-
     public function queueKey($key)
     {
         $this->queuedKeys[] = $key;
-    }
-
-    public function fetchQueuedKeyValues()
-    {
-        $this->redis->multi(\Redis::PIPELINE);
-        foreach ($this->queuedKeys as $queued_key) {
-            $this->currentKey = $queued_key;
-            $this->fetchOneKeyValueUsingPipe($queued_key);
-        }
-        $redis_result_array = $this->redis->exec();
-        if ($redis_result_array === false) {
-            throw new RedisBackupRedisFailedException('批量获取 Redis EXEC', $this->redis);
-        }
-        $each_key_result_count = count($redis_result_array) / count($this->queuedKeys);
-        $i = 0;
-        foreach ($this->queuedKeys as $queued_key) {
-            $this->currentKey = $queued_key;
-            $this->processOneKeyValueFromPipe($queued_key, array_slice($redis_result_array, $i, $each_key_result_count));
-            $this->queueKeyValue($queued_key, $this->currentValue);
-            $i += $each_key_result_count;
-        }
     }
 
     public function clearQueuedKeys()
@@ -83,16 +61,66 @@ abstract class RedisMysqlWriter
         $this->queuedKeys = array();
     }
 
-    public function queueKeyValue($key, $value)
+    // ==================== Redis 部分 ====================
+
+    /**
+     * @param string $key
+     *
+     * @return int 此方法中执行了几次 Redis 操作（即有几个返回值）
+     */
+    abstract public function fetchKeyRedisValueUsingPipe($key);
+
+    /**
+     * @param string $key
+     * @param string $redis_result_array
+     *
+     * @return mixed Redis Value
+     */
+    abstract public function processKeyRedisValueFromPipe($key, $redis_result_array);
+
+    public function fetchQueuedKeyRedisValues()
     {
-        $this->queuedKeyValues[$key] = $value;
+        $this->redis->multi(\Redis::PIPELINE);
+        $expect_result_count = 0;
+        foreach ($this->queuedKeys as $key) {
+            $this->currentKey = $key;
+            $expect_result_count += $this->fetchKeyRedisValueUsingPipe($key);
+        }
+        $redis_result_array = $this->redis->exec();
+        if ($redis_result_array === false) {
+            throw new RedisBackupRedisFailedException('PIPELINE & EXEC', $this->redis);
+        }
+
+        $actual_result_count = count($redis_result_array);
+        if ($actual_result_count !== $expect_result_count) {
+            throw new RedisBackupCountNotEqualsException('Redis Pipeline 返回结果', $expect_result_count, $actual_result_count);
+        }
+
+        $each_key_result_count = $actual_result_count / count($this->queuedKeys);
+        $i = 0;
+        foreach ($this->queuedKeys as $key) {
+            $this->currentKey = $key;
+            $this->queuedValues[$key] = $this->processKeyRedisValueFromPipe($key, array_slice($redis_result_array, $i, $each_key_result_count));
+            $i += $each_key_result_count;
+        }
     }
 
-    public function insertQueuedKeyValue()
+    // ==================== MySQL 部分 ====================
+
+    /**
+     * @param string $key
+     * @param mixed $value
+     *
+     * @return string 待写入 MySQL 的 Redis Value
+     */
+    abstract public function buildMysqlValue($key, $value);
+
+    public function insertQueuedValues()
     {
         $lines = array();
-        foreach ($this->queuedKeyValues as $key => $value) {
+        foreach ($this->queuedValues as $key => $value) {
             $key = $this->mysqli->real_escape_string($key);
+            $value = $this->buildMysqlValue($key, $value);
             $value = $this->mysqli->real_escape_string($value);
             $line = "('{$key}', '{$value}', CURRENT_TIMESTAMP())";
             $lines[] = $line;
@@ -102,25 +130,29 @@ abstract class RedisMysqlWriter
         if (!$this->mysqli->query($sql)) {
             throw new RedisBackupMySQLFailedException("MySQL 插入失败 SQL: {$sql}", $this->mysqli);
         }
-        $expect_count = count($this->queuedKeyValues);
-        if ($this->mysqli->affected_rows < $expect_count) {
+        $expect_count = count($this->queuedValues);
+        $actual_count = $this->mysqli->affected_rows;
+        if ($actual_count < $expect_count) {
             throw new RedisBackupWriteCountNotEnoughException($expect_count, $this->mysqli->affected_rows, $this->mysqli);
         }
     }
 
-    public function clearQueuedKeyValues()
+    public function clearQueuedValues()
     {
-        $this->queuedKeyValues = array();
+        $this->queuedValues = array();
     }
+
+    // ==================== 主程序 ====================
 
     public function runBatch()
     {
-        $this->fetchQueuedKeyValues();
+        $this->fetchQueuedKeyRedisValues();
+        $this->insertQueuedValues();
+        $this->clearQueuedValues();
+
+        $this->keyCount += count($this->queuedKeys);
+        $this->keyFileWriter->writeMultiple($this->queuedKeys);
         $this->clearQueuedKeys();
-        $this->insertQueuedKeyValue();
-        $this->keyCount += count($this->queuedKeyValues);
-        $this->keyFileWriter->writeMultiple(array_keys($this->queuedKeyValues));
-        $this->clearQueuedKeyValues();
 
         $t = Timer::time();
         Logger::info("已写入 key 数量: {$this->keyCount}\t耗时: {$t} s");

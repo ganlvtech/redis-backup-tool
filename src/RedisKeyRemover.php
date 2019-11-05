@@ -2,7 +2,7 @@
 
 namespace RedisBackup;
 
-use RedisBackup\Exception\RedisBackupDeleteCountNotEqualsException;
+use RedisBackup\Exception\RedisBackupCountNotEqualsException;
 use RedisBackup\Exception\RedisBackupRedisFailedException;
 use RedisBackup\Util\Logger;
 use RedisBackup\Util\Sampler;
@@ -60,7 +60,7 @@ class RedisKeyRemover
         }
         $del_count = (int)$redis_result;
         if ($del_count != count($this->queuedKeys)) {
-            throw new RedisBackupDeleteCountNotEqualsException(count($this->queuedKeys), $del_count, $this->redis);
+            throw new RedisBackupCountNotEqualsException('Redis 删除 Key', count($this->queuedKeys), $del_count);
         }
         $this->keyCount += $del_count;
         $this->keyFileWriter->writeMultiple($this->queuedKeys);

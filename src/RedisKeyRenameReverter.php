@@ -2,7 +2,7 @@
 
 namespace RedisBackup;
 
-use RedisBackup\Exception\RedisBackupException;
+use RedisBackup\Exception\RedisBackupCountNotEqualsException;
 use RedisBackup\Exception\RedisBackupRedisFailedException;
 use RedisBackup\Util\Logger;
 use RedisBackup\Util\Sampler;
@@ -19,9 +19,11 @@ class RedisKeyRenameReverter
     /** @var string */
     public $renameSuffix;
 
+    public $queuedKeys;
+    public $queuedOriginalKeys;
+
     public $currentKey;
     public $keyCount;
-    public $isFinished;
     public $isDebug;
 
     public function __construct($redis, $keyFileReader, $keyFileWriter, $renameSuffix)
@@ -30,14 +32,29 @@ class RedisKeyRenameReverter
         $this->keyFileReader = $keyFileReader;
         $this->keyFileWriter = $keyFileWriter;
         $this->renameSuffix = $renameSuffix;
+
+        $this->queuedKeys = array();
+
+        $this->currentKey = '';
         $this->keyCount = 0;
-        $this->isFinished = false;
     }
 
     public function isFinished()
     {
-        return $this->isFinished;
+        return $this->keyFileReader->isFinished();
     }
+
+    public function queueKey($key)
+    {
+        $this->queuedKeys[] = $key;
+    }
+
+    public function clearQueuedKeys()
+    {
+        $this->queuedKeys = array();
+    }
+
+    // ==================== 重命名部分 ====================
 
     protected function getOriginalKey($renamedKey)
     {
@@ -55,52 +72,76 @@ class RedisKeyRenameReverter
         return $renamedKey;
     }
 
-    protected function revertRename($renamedKey)
+    public function renameQueuedKeys()
     {
-        $key = $this->getOriginalKey($renamedKey);
-        if ($key === false) {
-            return false;
-        }
-
-        $redis_result = $this->redis->exists($key);
-        if ($redis_result) {
-            throw new RedisBackupException('回滚后的 Key 名称已存在: ' . $key);
-        }
-
+        $this->queuedOriginalKeys = array();
         if ($this->isDebug) {
-            echo "Redis> RENAME $renamedKey $key", PHP_EOL;
+            foreach ($this->queuedKeys as $key) {
+                $this->currentKey = $key;
+                $originalKey = $this->getOriginalKey($key);
+                echo "Redis> RENAME $key $originalKey", PHP_EOL;
+                $this->queuedOriginalKeys[] = $originalKey;
+            }
         } else {
-            $redis_result = $this->redis->rename($renamedKey, $key);
-            if ($redis_result === false) {
-                throw new RedisBackupRedisFailedException('RENAME', $this->redis);
+            $this->redis->multi(\Redis::PIPELINE);
+            $expect_result_count = 0;
+            foreach ($this->queuedKeys as $key) {
+                $this->currentKey = $key;
+                $originalKey = $this->getOriginalKey($key);
+                $this->redis->rename($key, $originalKey);
+                ++$expect_result_count;
+                $this->queuedOriginalKeys[] = $originalKey;
+            }
+
+            $redis_result_array = $this->redis->exec();
+            if ($redis_result_array === false) {
+                throw new RedisBackupRedisFailedException('PIPELINE & EXEC', $this->redis);
+            }
+
+            $actual_result_count = count($redis_result_array);
+            if ($actual_result_count !== $expect_result_count) {
+                throw new RedisBackupCountNotEqualsException('Redis Pipeline 返回结果', $expect_result_count, $actual_result_count);
+            }
+
+            $i = 0;
+            foreach ($this->queuedKeys as $key) {
+                $this->currentKey = $key;
+                if ($redis_result_array[$i] === false) {
+                    throw new RedisBackupRedisFailedException('RENAME', $this->redis);
+                }
+                ++$i;
             }
         }
-        $this->keyFileWriter->write($key);
-        return true;
     }
 
-    public function run()
+    // ==================== 主程序 ====================
+
+    public function runBatch()
+    {
+        $this->renameQueuedKeys();
+        $this->clearQueuedKeys();
+        $this->keyCount += count($this->queuedOriginalKeys);
+        $this->keyFileWriter->writeMultiple($this->queuedOriginalKeys);
+
+        $t = Timer::time();
+        Logger::info("已回滚 key 数量: {$this->keyCount}\t耗时: {$t} s");
+    }
+
+    public function run($batch = 300)
     {
         Logger::info("开始回滚重命名的 Redis key");
         Timer::start();
         while (!$this->isFinished()) {
             $this->currentKey = $this->keyFileReader->getKey();
             if ($this->currentKey === false) {
-                $this->isFinished = true;
                 break;
             }
-
-            if (!$this->revertRename($this->currentKey)) {
-                throw new RedisBackupException("Key {$this->currentKey} 后缀不正确");
-            }
-
-            ++$this->keyCount;
-            if (Sampler::sample(300)) {
-                $t = Timer::time();
-                Logger::info("已回滚 key 数量: {$this->keyCount}\t耗时: {$t} s");
+            $this->queueKey($this->currentKey);
+            if (Sampler::sample($batch)) {
+                $this->runBatch();
             }
         }
-        $t = Timer::time();
-        Logger::info("回滚完成！key 数量: {$this->keyCount}\t耗时: {$t} s");
+        $this->runBatch();
+        Logger::info("回滚完成！");
     }
 }

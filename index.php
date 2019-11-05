@@ -148,8 +148,7 @@ switch ($action) {
             $redisBackup->checkRedisCluster();
         } catch (RedisBackupClusterNotSelectNodeException $e) {
             Logger::error($e->getMessage());
-            echo $e->getMessage(), PHP_EOL;
-            echo $e->getTraceAsString(), PHP_EOL;
+            Logger::error($e->getTraceAsString());
             return;
         }
 
@@ -174,8 +173,7 @@ switch ($action) {
                 $scanner->run($config['backup']['scan_batch']);
             } catch (RedisBackupException $e) {
                 Logger::error($e->getMessage());
-                echo $e->getMessage(), PHP_EOL;
-                echo $e->getTraceAsString(), PHP_EOL;
+                Logger::error($e->getTraceAsString());
                 if (!$ignoreAll) {
                     $confirm_result = confirm('是否继续？[y/N/a] ');
                     if ($confirm_result === 'a') {
@@ -190,7 +188,7 @@ switch ($action) {
     case 'write':
         $writer = $redisBackup->writer(
             $config['backup']['type'],
-            new KeyFileReader($config['backup']['scanned_keys_file']),
+            new KeyFileReader($config['backup']['write_read_keys_file']),
             new KeyFileWriter($config['backup']['written_keys_file']),
             $config['backup']['table_name']
         );
@@ -201,12 +199,11 @@ switch ($action) {
             try {
                 $writer->run($config['backup']['write_batch']);
             } catch (RedisBackupException $e) {
-                $keys = implode("\n", array_keys($writer->queuedKeyValues));
-                Logger::error($e->getMessage() . " 当前行: {$writer->keyFileReader->getLineNumber()} Keys: {$keys}");
-                $writeErrorKeysWriter->writeMultiple($writer->queuedKeyValues);
-                $writer->clearQueuedKeyValues();
-                echo $e->getMessage(), PHP_EOL;
-                echo $e->getTraceAsString(), PHP_EOL;
+                Logger::error($e->getMessage() . " 当前行: {$writer->keyFileReader->getLineNumber()} 当前 Key: {$writer->currentKey}");
+                Logger::error($e->getTraceAsString());
+                $writeErrorKeysWriter->writeMultiple($writer->queuedKeys);
+                $writer->clearQueuedValues();
+                $writer->clearQueuedKeys();
                 if (!$ignoreAll) {
                     $confirm_result = confirm('是否继续？[y/N/a] ');
                     if ($confirm_result === 'a') {
@@ -221,7 +218,7 @@ switch ($action) {
     case 'compare_rename':
         $renamer = $redisBackup->renamer(
             $config['backup']['type'],
-            new KeyFileReader($config['backup']['written_keys_file']),
+            new KeyFileReader($config['backup']['rename_read_keys_file']),
             new KeyFileWriter($config['backup']['renamed_keys_file']),
             $config['backup']['rename_suffix'],
             $config['backup']['table_name']
@@ -232,12 +229,13 @@ switch ($action) {
         $ignoreAll = false;
         while (!$renamer->isFinished()) {
             try {
-                $renamer->run();
+                $renamer->run($config['backup']['rename_batch']);
             } catch (RedisBackupException $e) {
-                Logger::error($e->getMessage() . " Key: {$renamer->currentKey}");
-                $renameErrorKeysWriter->write($renamer->currentKey);
-                echo $e->getMessage(), PHP_EOL;
-                echo $e->getTraceAsString(), PHP_EOL;
+                Logger::error($e->getMessage() . " 当前行: {$renamer->keyFileReader->getLineNumber()} 当前 Key: {$renamer->currentKey}");
+                Logger::error($e->getTraceAsString());
+                $renameErrorKeysWriter->writeMultiple($renamer->queuedKeys);
+                $renamer->clearQueuedValues();
+                $renamer->clearQueuedKeys();
                 if (!$ignoreAll) {
                     $confirm_result = confirm('是否继续？[y/N/a] ');
                     if ($confirm_result === 'a') {
@@ -251,7 +249,7 @@ switch ($action) {
         break;
     case 'revert':
         $reverter = $redisBackup->reverter(
-            new KeyFileReader($config['backup']['renamed_keys_file']),
+            new KeyFileReader($config['backup']['revert_read_keys_file']),
             new KeyFileWriter($config['backup']['reverted_keys_file']),
             $config['backup']['rename_suffix']
         );
@@ -260,12 +258,12 @@ switch ($action) {
         $ignoreAll = false;
         while (!$reverter->isFinished()) {
             try {
-                $reverter->run();
+                $reverter->run($config['backup']['revert_batch']);
             } catch (RedisBackupException $e) {
-                Logger::error($e->getMessage() . " Key: {$reverter->currentKey}");
-                $revertErrorKeysWriter->write($reverter->currentKey);
-                echo $e->getMessage(), PHP_EOL;
-                echo $e->getTraceAsString(), PHP_EOL;
+                Logger::error($e->getMessage() . " 当前行: {$reverter->keyFileReader->getLineNumber()} 当前 Key: {$reverter->currentKey}");
+                Logger::error($e->getTraceAsString());
+                $revertErrorKeysWriter->writeMultiple($reverter->queuedKeys);
+                $reverter->clearQueuedKeys();
                 if (!$ignoreAll) {
                     $confirm_result = confirm('是否继续？[y/N/a] ');
                     if ($confirm_result === 'a') {
@@ -279,7 +277,7 @@ switch ($action) {
         break;
     case 'remove':
         $remover = $redisBackup->remover(
-            new KeyFileReader($config['backup']['renamed_keys_file']),
+            new KeyFileReader($config['backup']['remove_read_keys_file']),
             new KeyFileWriter($config['backup']['removed_keys_file'])
         );
         $removeErrorKeysWriter = new KeyFileWriter($config['backup']['remove_error_keys_file']);
@@ -289,12 +287,10 @@ switch ($action) {
             try {
                 $remover->run($config['backup']['remove_batch']);
             } catch (RedisBackupException $e) {
-                $keys = implode("\n", $remover->queuedKeys);
-                Logger::error($e->getMessage() . " 当前行: {$remover->keyFileReader->getLineNumber()} Keys: {$keys}");
+                Logger::error($e->getMessage() . " 当前行: {$remover->keyFileReader->getLineNumber()} 当前 Key: {$remover->currentKey}");
+                Logger::error($e->getTraceAsString());
                 $removeErrorKeysWriter->writeMultiple($remover->queuedKeys);
                 $remover->clearQueuedKeys();
-                echo $e->getMessage(), PHP_EOL;
-                echo $e->getTraceAsString(), PHP_EOL;
                 if (!$ignoreAll) {
                     $confirm_result = confirm('是否继续？[y/N/a] ');
                     if ($confirm_result === 'a') {
