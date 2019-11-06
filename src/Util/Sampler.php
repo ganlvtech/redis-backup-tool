@@ -22,6 +22,11 @@ class Sampler
         return false;
     }
 
+    public static function getCounter($name)
+    {
+        return self::$counter[$name];
+    }
+
     public static function stop($name = '')
     {
         unset(static::$times[$name]);
