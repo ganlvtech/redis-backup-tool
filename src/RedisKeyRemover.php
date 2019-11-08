@@ -54,6 +54,9 @@ class RedisKeyRemover
 
     public function runBatch()
     {
+        if (!$this->queuedKeys) {
+            return;
+        }
         $redis_result = $this->delQueuedKeys();
         if ($redis_result === false) {
             throw new RedisBackupRedisFailedException('DEL', $this->redis);
